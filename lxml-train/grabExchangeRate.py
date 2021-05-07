@@ -1,19 +1,11 @@
-# -*- coding: utf-8 -*-
-
-"""
-抓取中国银行汇率
-Created on 2021/05/05
-
-@author:bahskzs
-
-"""
-
-import requests
 from lxml import etree
 import pandas as pd
 import datetime
-from sqlalchemy import create_engine
-from readConfig import ReadConfig
+from handleDB import HandleMysql
+import grequests
+import requests
+import time
+import numpy as np
 
 
 # 获取昨天
@@ -22,48 +14,64 @@ def getYesterday():
     return yesterday
 
 
-# 货币
-money_type = "美元"
+# start_time = time.time()
 
-data = {
-    "erectDate": getYesterday(),
-    "nothing": getYesterday(),
-    "pjname": money_type
-}
+col_list = ["美元", "欧元"]
 
-# 获取页面
-res = requests.get(url="https://srh.bankofchina.com/search/whpj/search_cn.jsp", params=data)
-html = etree.HTML(res.text)
-arr_dollar = html.xpath("//tr[2]/td[position()>5]/text()")
+request_url = 'https://srh.bankofchina.com/search/whpj/search_cn.jsp'
 
-money_type = "欧元"
+req_list = [  # 请求列表
+    grequests.get(request_url,
+                  params={
+                      "erectDate": getYesterday(),
+                      "nothing": getYesterday(),
+                      "pjname": col_list[0]
+                  }),
+    grequests.get(request_url,
+                  params={
+                      "erectDate": getYesterday(),
+                      "nothing": getYesterday(),
+                      "pjname": col_list[1]
+                  })
+]
+# req_list=[]
 
-res = requests.get(url="https://srh.bankofchina.com/search/whpj/search_cn.jsp", params=data)
-html = etree.HTML(res.text)
-arr_euro = html.xpath("//tr[2]/td[position()>5]/text()")
+# csv_data = pd.read_csv("date_data.csv", low_memory=False)  # 防止弹出警告
+# csv_df = pd.DataFrame(csv_data).values.tolist()
+# for dateStr in csv_df:
+#     param_data = {
+#         "erectDate": dateStr,
+#         "nothing": dateStr,
+#         "pjname": col_list[0]
+#     }
+#     req = grequests.get(request_url,params=param_data)
+#     req_list.append(req)
+#     param_data = {
+#         "erectDate": dateStr,
+#         "nothing": dateStr,
+#         "pjname": col_list[1]
+#     }
+#     req = grequests.get(request_url, params=param_data)
+#     req_list.append(req)
 
-# 构造映射关系
-listZip = list(zip(arr_dollar, arr_euro))
-# df = pd.DataFrame()
 
-# 构造数据
-price_data = {
-    'money_type': ["美元", "欧元"],
-    'cur_price': listZip[0],
-    'published_time': listZip[1],
-    'collection_time': [datetime.date.today(), datetime.date.today()]
-}
-
-# 转换为df
-df = pd.DataFrame(price_data)
+res_list = grequests.map(req_list)
 
 
-mysqlUrl = "mysql+pymysql://" + ReadConfig.getConfigValue("user") + ":" + ReadConfig.getConfigValue(
-    "passwd") + "@" + ReadConfig.getConfigValue("host") + ":" + ReadConfig.getConfigValue(
-    "port") + "/" + ReadConfig.getConfigValue("database") + "?charset=utf8"
+arr = []
+# end_time = time.time()
+# print((time.time()-start_time))
+for res_text in res_list:
+    html = etree.HTML(res_text.text)
+    content = html.xpath("//tr[2]/td[position()=1 or position()>5]/text()")
+    # 采集时间
+    content.append(datetime.date.today())
+    arr.append(content)
 
-# 利用df的.to_sql方法写入数据库
-engine = create_engine(mysqlUrl)
-df.to_sql(name='rate_demo', con=engine, if_exists='append', index=False, index_label=False)
+# 转换格式
+data = np.array(arr)
+df = pd.DataFrame(data=data, columns=['money_type', 'cur_price', 'published_time', 'collection_time'])
 
+engine = HandleMysql().conn_mysql()
+df.to_sql(name='rate_data', con=engine, if_exists='append', index=False, index_label=False)
 
