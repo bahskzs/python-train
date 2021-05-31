@@ -7,11 +7,13 @@ import time
 
 # 读取文件
 df = pd.read_csv("H:\Downloads\My Research Folder.csv")
-# 找出是今天收集的
+
 today=str(datetime.date.today())
-data = df[df["Date"] == today]
 collectDate = str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-data["collect_date"] = collectDate
+df["collect_date"] = collectDate
+
+# 找出是今天收集的
+data = df[df["Date"] == today]
 
 try:
     engine = HandleMysql().conn_mysql()
